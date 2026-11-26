@@ -12,43 +12,6 @@
 
 #include "get_next_line.h"
 
-int	findchar_in_str(char *p,char c)
-{
-	int idx;
-
-	idx = 0;
-	while (*p != '\0')
-	{
-		if (*p == c)
-			return (idx);
-		idx++;
-		p++;
-	}
-	return (-1);
-}
-
-void	shift_node_data(struct s_list	*now)
-{
-	char	*data;
-	int		idx_start;
-	int		count;
-
-	data = (*now).data;
-	count = 0;
-	idx_start = (*now).idx_nl + 1;
-	(*now).idx_nl = -1;
-	while (*(data + idx_start) != '\0')
-	{
-		if (*(data + idx_start) == '\0')
-			(*now).idx_nl = count;
-		*data = *(data + idx_start);
-		data++;
-		count++;
-	}
-	*data = '\0';
-	(*now).len = count;
-	(*now).idx_nl = -1;
-}
 
 void	reset_head(struct s_list **head)
 {
@@ -68,22 +31,33 @@ void	reset_head(struct s_list **head)
 	if ((*now).idx_nl == -1)
 	{
 		free((*now).data);
-		free((*now).next);
 		free(now);
+		now = NULL;
 	}
-	else
-		shift_node_data(now);
+	else if (shift_node_data(now) == 0)
+		now = NULL;
 	*head = now;
 }
 
-struct s_list	*new_node(int fd,int *idx_nl)
+struct s_list	*new_node(int fd, int *idx_nl, struct s_list **head)
 {
 	struct s_list	*node;
 
 	node = malloc(sizeof(struct s_list));
+	if (!node)
+		return (NULL);
 	(*node).data = malloc(BUFFER_SIZE + 1);
-	if (((*node).len = read(fd,(*node).data,BUFFER_SIZE)) <= 0)
-		
+	if (!((*node).data))
+		return (NULL);
+	(*node).len = read(fd, (*node).data, BUFFER_SIZE);
+	if ((*node).len <= 0)
+	{
+		if ((*node).len < 0)
+			reset_head(head);
+		free((*node).data);
+		free(node);
+		return (NULL);
+	}
 	*(((*node).data) + (*node).len) = '\0';
 	*idx_nl = findchar_in_str((*node).data, '\n');
 	(*node).idx_nl = *idx_nl;
@@ -93,64 +67,38 @@ struct s_list	*new_node(int fd,int *idx_nl)
 
 void	set_head(struct s_list **head,int fd)
 {
-	char			*data_buf;
 	struct s_list	*last_node;
 	struct s_list	*node;
-	int				*idx_nl;
+	int				idx_nl;
 	
-	data_buf = malloc(BUFFER_SIZE + 1);
-	last_node = malloc(sizeof(struct s_list));
-	(*last_node).len = read(fd,data_buf,BUFFER_SIZE);
-	*idx_nl = findchar_in_str(data_buf,'\n');
-	(*last_node).idx_nl = *idx_nl;
+	if ((*head != NULL && (**head).idx_nl != -1))
+		return;
+	last_node = new_node(fd, &idx_nl, head);
+	if (last_node == NULL)
+		return;
 	if (*head == NULL)
 		*head = last_node;
 	else
 		(**head).next = last_node;
 	while(idx_nl == -1)
 	{
+		node = new_node(fd, &idx_nl, head);
+		if (node == NULL)
+			return;
 		(*last_node).next = node;
-		node = new_node(fd, &idx_nl);
 		last_node = node;
 	}
-	(*last_node).next = node;
-	node = new_node(fd, idx_nl);
 }
 
-int get_len_untill_nl(struct s_list **head)
-{
-	int		len;
-	struct s_list	*now;
-
-	len = 0;
-	now = *head;
-	while((*now).idx_nl < 0)
-	{
-		len += (*now).len;
-		now = (*now).next;
-	}
-	len += (*now).idx_nl;
-	return (len);
-}
-
-int place_ans(char *ans, char *source, int idx)
-{
-	while(*source != '\0' && *source != '\n')
-	{
-		*(ans + idx) = *source;
-		source++;
-		idx++;
-	}
-	return (idx);
-}
-
-char *read_head(struct s_list **head,int fd)
+char *read_head(struct s_list **head)
 {
 	char *ans;
 	int idx_ans;
 	struct s_list	*now;
+	int len;
 
-	ans = malloc(get_len_untill_nl(*head));
+	len = get_len_untill_nl(head);
+	ans = malloc(len + 1);
 	now = *head;
 	idx_ans = 0;
 	while ((*now).idx_nl < 0)
@@ -158,18 +106,27 @@ char *read_head(struct s_list **head,int fd)
 		idx_ans = place_ans(ans,(*now).data,idx_ans);
 		now = (*now).next;
 	}
-	idx_ans = place_ans(ans,(*now).data,idx_ans);
+	if (now != NULL)
+	{
+		idx_ans = place_ans(ans, (*now).data, idx_ans);
+		*(ans + idx_ans) = '\n';
+		idx_ans++;
+	}
+	*(ans + idx_ans) = '\0';
+	return (ans);
 }
 
 char	*get_next_line(int fd)
 {
-	static struct s_list *(head[1024]);
+	static struct s_list *(head[MAX_FD]);
 	char *ans;
 
-	if (fd >= MAX_FD)
-		return;
+	if (fd >= 1024 || fd < 0 || BUFFER_SIZE <= 0)
+		return (NULL);
 	set_head(&(head[fd]),fd);
-	ans = read_head(&(head[fd]),fd);
+	if ((head[fd]) == NULL)
+		return (NULL);
+	ans = read_head(&(head[fd]));
 	reset_head(&(head[fd]));
 	return(ans);
 }
